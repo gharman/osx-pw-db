@@ -1,0 +1,80 @@
+#!/bin/sh
+
+function encrypt() {
+    echo "$1" | openssl aes-256-cbc -e -salt -pass pass:"$2"
+}
+
+function decrypt() {
+    echo "$1" | openssl aes-256-cbc -d -nopad -pass pass:"$2"
+}
+
+function query() {
+     sqlite3 ~/.pwdb "$1"
+}
+
+function initdb() {
+   query "create table if not exists pwdb (key primary key, password binary);"
+}
+
+function listmatch() {
+    query "select key from pwdb where key like '%$1%' order by key;";
+}
+
+function add() {
+    local pass=$(encrypt "$2" "$3")
+    query "insert or replace into pwdb (key, password) values ('$1', '$pass');"
+}
+
+function genpass() {
+    openssl rand -base64 12 | while read passwd; do echo $passwd; done
+}
+
+function gen() {
+    add $1 `genpass` $2
+}
+
+function delete() {
+    query "delete from pwdb where key = '$1';"
+}
+
+function selectone() {
+    local enc=`query "select distinct password from pwdb where key = '$1';"`
+    local plaintext=`decrypt "$enc" "$2"`
+    echo $plaintext | tr -cd '[0-9a-zA-Z\!\@\#\$\%\^\&\(\)\{\}\[\]\;\:\.\,\''\"].' | pbcopy
+}
+
+initdb # No harm in doing this each time because of the if_not_exists
+
+function readpw () {
+    unset pw
+    if [ -z "$1" ]
+	then prompt="Enter Password:"
+	else prompt="$1"
+    fi
+    while IFS= read -p "$prompt" -r -s -n 1 char
+    do
+	if [[ $char == $'\0' ]]
+	then
+	    break
+	fi
+	prompt='*'
+	pw+="$char"
+    done
+    echo $pw
+}
+
+## key, value, pw
+case "$1" in
+    add) linebreak=`echo $'\n '` 
+	add "$2" `readpw "Password for $2:"` `readpw "$linebreak Database Password:"`
+	history -d 1;;
+    delete) delete "$2";;
+    gen) gen "$2" `readpw "$linebreak Database Password:"`;;
+    list) listmatch "$2";;
+    help) echo "Usage: $0 [a][d][g][l] key/domain";;
+    *) selectone "$1" `readpw` &> /dev/null;; 
+esac
+echo "\n"
+## key, PW
+
+
